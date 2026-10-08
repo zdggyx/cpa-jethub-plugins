@@ -138,7 +138,7 @@ func TestPublishedCatalogueUsesCanonicalNames(t *testing.T) {
 	}
 	host.install(t)
 
-	infos := modelInfos(staticModelEntries(testHost(), settings(), sampleCredential(7*24*3600)), settings(), nil)
+	infos := modelInfos(staticModelEntries(testHost(), settings(), sampleCredential(7*24*3600)))
 	if len(infos) != 1 || infos[0].ID != "Qwen3.8-27B" {
 		t.Fatalf("published ids = %+v, want the canonical Qwen3.8-27B", infos)
 	}

@@ -45,7 +45,7 @@ func catalogueRefresh(h *abiboot.Host, cfg Config) (catalog.Outcome, error) {
 	}
 
 	previous := cataloguePeek(credential)
-	previousIDs := modelIDSet(modelInfos(previous, cfg, credential))
+	previousIDs := modelIDSet(modelInfos(previous))
 
 	invalidateCatalogue(credential)
 
@@ -67,7 +67,7 @@ func catalogueRefresh(h *abiboot.Host, cfg Config) (catalog.Outcome, error) {
 	}
 
 	serving := staticModelEntries(h, cfg, credential)
-	ids := modelIDSet(modelInfos(serving, cfg, credential))
+	ids := modelIDSet(modelInfos(serving))
 	return catalog.Outcome{Models: len(serving), Changed: !sameIDSet(previousIDs, ids)}, nil
 }
 

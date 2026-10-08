@@ -58,9 +58,9 @@ func gatewayHeaders(credential *Credential) http.Header {
 //
 // Only three members are touched, and each for a reason the format forces:
 //
-//   - `model` is stripped of the account prefix this adapter adds when
-//     `model_prefix` is on (the prefix exists so several accounts can offer the
-//     same model; the gateway has never heard of it);
+//   - `model` is stripped of the account prefix, in case a caller still uses
+//     the `<account>/<model>` spelling (the prefix exists so several accounts
+//     can offer the same model; the gateway has never heard of it);
 //   - `stream` is forced to match the ABI method that was called, because the
 //     host dispatches on the method and the body may disagree;
 //   - `stream_options` is dropped on the buffered path, where there is no stream

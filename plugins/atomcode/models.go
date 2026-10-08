@@ -374,20 +374,21 @@ func staticModelEntries(h *abiboot.Host, cfg Config, credential *Credential) []m
 }
 
 // modelInfos projects catalogue entries onto the host's model records.
-func modelInfos(entries []modelEntry, cfg Config, credential *Credential) []pluginapi.ModelInfo {
-	prefix := ""
-	if cfg.ModelPrefix && credential != nil {
-		prefix = modelPrefixFor(credential)
-	}
+//
+// The ids published here are unprefixed: CPA builds the `<account>/<model>`
+// alias itself from the credential's auth prefix. Baking the prefix in here as
+// well made the host register a doubled `account/account/model` entry next to
+// the plain one (measured on CPA 8.0.20, 2026-10-08).
+func modelInfos(entries []modelEntry) []pluginapi.ModelInfo {
 	out := make([]pluginapi.ModelInfo, 0, len(entries))
 	for _, entry := range entries {
-		out = append(out, modelInfoFor(entry, prefix))
+		out = append(out, modelInfoFor(entry))
 	}
 	return out
 }
 
 // modelInfoFor renders one model record.
-func modelInfoFor(entry modelEntry, prefix string) pluginapi.ModelInfo {
+func modelInfoFor(entry modelEntry) pluginapi.ModelInfo {
 	contextWindow := entry.effectiveContextWindow()
 	modalities := []string{"text"}
 	if entry.acceptsImages() {
@@ -397,16 +398,15 @@ func modelInfoFor(entry modelEntry, prefix string) pluginapi.ModelInfo {
 	}
 	// Two names, and the order matters: `DisplayModelName` is the gateway's OWN
 	// id (the `glm5.3-flash` spelling it answers to), while `display` is the
-	// canonical name this deployment routes by. `ID` is the routing name the host
-	// registers and that requests carry; `Name` is the provider-native spelling,
-	// carried WITHOUT the account prefix — the prefix is a deployment artifact of
-	// this plugin, not something the gateway calls the model.
+	// canonical name this deployment routes by. `ID` is the unprefixed canonical
+	// name the host registers; the host exposes it to clients as
+	// `<account>/<ID>`. `Name` is the provider-native spelling.
 	// Publishing the canonical name in BOTH fields made `Name` a copy of the
 	// rename, so a reader of `Name` learned nothing about what the gateway calls
 	// the model (`models-v2` returns `display_model_name: "glm5.3-flash"`).
 	display := canonicalModelName(entry.DisplayModelName)
 	info := pluginapi.ModelInfo{
-		ID:                         prefix + display,
+		ID:                         display,
 		Object:                     "model",
 		Created:                    time.Now().Unix(),
 		OwnedBy:                    ProviderKey,
@@ -483,12 +483,12 @@ func findModel(entries []modelEntry, model string) (modelEntry, bool) {
 // No credential is available yet, so this is the bundled snapshot; the live
 // catalogue arrives through `model.for_auth` once an account is bound.
 func handleModelRegister(_ *abiboot.Host, _ json.RawMessage) (any, error) {
-	return pluginapi.ModelRegistrationResponse{Provider: ProviderKey, Models: modelInfos(fallbackCatalogue, settings(), nil)}, nil
+	return pluginapi.ModelRegistrationResponse{Provider: ProviderKey, Models: modelInfos(fallbackCatalogue)}, nil
 }
 
 // handleModelStatic is the model.static variant of the same list.
 func handleModelStatic(_ *abiboot.Host, _ json.RawMessage) (any, error) {
-	return pluginapi.ModelResponse{Provider: ProviderKey, Models: modelInfos(fallbackCatalogue, settings(), nil)}, nil
+	return pluginapi.ModelResponse{Provider: ProviderKey, Models: modelInfos(fallbackCatalogue)}, nil
 }
 
 // handleModelForAuth reports the catalogue for one bound account.
@@ -514,5 +514,5 @@ func handleModelForAuth(h *abiboot.Host, raw json.RawMessage) (any, error) {
 	}
 	cfg := settings()
 	entries := staticModelEntries(h, cfg, credential)
-	return pluginapi.ModelResponse{Provider: ProviderKey, Models: modelInfos(entries, cfg, credential)}, nil
+	return pluginapi.ModelResponse{Provider: ProviderKey, Models: modelInfos(entries)}, nil
 }

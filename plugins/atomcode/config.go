@@ -175,8 +175,6 @@ type Config struct {
 	// Ids here are added ON TOP of the discovered catalogue, never instead of
 	// it, and duplicates are dropped.
 	ExtraModels []string
-	// ModelPrefix exposes the account id as a model prefix (`<account>/<model>`).
-	ModelPrefix bool
 	// ModelCacheTTLMS bounds how long a discovered catalogue is reused.
 	ModelCacheTTLMS int
 	// ModelRefreshMS is how often the catalogue is refetched in the background,
@@ -207,7 +205,6 @@ func DefaultConfig() Config {
 		GatewayBase:          DefaultGatewayBase,
 		DiscoverModels:       true,
 		ExtraModels:          nil,
-		ModelPrefix:          true,
 		ModelCacheTTLMS:      ModelCacheTTLMS,
 		ModelRefreshMS:       0,
 		PlanType:             PlanTypeAuto,
@@ -240,7 +237,6 @@ func ConfigFromYAML(document []byte) Config {
 	cfg.GatewayBase = coerceURL(raw["gateway_base"], cfg.GatewayBase, DefaultGatewayBase)
 	cfg.DiscoverModels = coerceBool(raw["discover_models"], cfg.DiscoverModels)
 	cfg.ExtraModels = coerceStringList(raw["extra_models"], cfg.ExtraModels)
-	cfg.ModelPrefix = coerceBool(raw["model_prefix"], cfg.ModelPrefix)
 	cfg.ModelCacheTTLMS = coerceInt(raw["model_cache_ttl_ms"], cfg.ModelCacheTTLMS)
 	cfg.ModelRefreshMS = coerceInt(raw["model_refresh_ms"], cfg.ModelRefreshMS)
 	cfg.PlanType = coercePlanType(raw["plan_type"], cfg.PlanType)
@@ -408,7 +404,6 @@ func ConfigFields() []configField {
 			Description: "补充模型：网关能调用、但服务端 models-v2 目录已不下发的模型 id（逗号分隔，也可写成 YAML 列表）。" +
 				"这些模型会加在实时目录之上。注意「能调用」不等于「可用」——实测 deepseek-flash 返回正常内容，" +
 				"而 Qwen/Qwen3-4B-Instruct-2507 会以 200 返回「三方请求失败: 502」，所以请只填自己验证过的模型"},
-		{Name: "model_prefix", Type: "boolean", Description: "是否把账号 ID 作为模型前缀暴露（<账号>/<模型>）。关闭后模型列表只显示模型本身的名字"},
 		{Name: "model_cache_ttl_ms", Type: "integer", Description: "实时模型目录的缓存时长，毫秒（默认 2 小时）"},
 		{Name: "model_refresh_ms", Type: "integer",
 			Description: "后台自动刷新目录的间隔，毫秒（默认 0 = 关闭）。开启后每隔该时长重拉一次 models-v2；" +

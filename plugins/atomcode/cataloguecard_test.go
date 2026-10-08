@@ -42,7 +42,7 @@ func TestModelInfoNameIsTheGatewayNativeId(t *testing.T) {
 	host.install(t)
 
 	cfg := settings()
-	infos := modelInfos(staticModelEntries(testHost(), cfg, sampleCredential(7*24*3600)), cfg, nil)
+	infos := modelInfos(staticModelEntries(testHost(), cfg, sampleCredential(7*24*3600)))
 	if len(infos) != 1 {
 		t.Fatalf("model count = %d, want 1", len(infos))
 	}
@@ -167,9 +167,9 @@ func TestCatalogueCardWithNoCacheStatesTheSnapshot(t *testing.T) {
 }
 
 // TestCatalogueCardRoutingNameMatchesWhatTheHostRegisters pins that the row's
-// routing name is the one requests must carry. With `model_prefix` on (the
-// default) the host registers `<account>/<model>`, so a card showing the bare
-// canonical name would name a request the router does not recognise.
+// routing name is the one requests must carry. CPA builds the
+// `<account>/<model>` alias from the credential's auth prefix, so the card
+// prepends that prefix to the published canonical name.
 func TestCatalogueCardRoutingNameMatchesWhatTheHostRegisters(t *testing.T) {
 	entries := []modelEntry{{DisplayModelName: "glm5.3-flash", PlanAvailable: true}}
 
@@ -183,17 +183,15 @@ func TestCatalogueCardRoutingNameMatchesWhatTheHostRegisters(t *testing.T) {
 	if rows[0].Native != "glm5.3-flash" {
 		t.Fatalf("Native = %q, want the gateway id glm5.3-flash", rows[0].Native)
 	}
-	// The routing name is whatever `modelInfos` published, so the page and the
-	// host registry cannot disagree.
-	published := modelInfos(entries, cfg, credential)
-	if rows[0].ID != published[0].ID {
-		t.Fatalf("card routing name = %q, host registered %q", rows[0].ID, published[0].ID)
+	// The plugin publishes the unprefixed canonical name; the card mirrors the
+	// host's `<account>/<model>` alias on top of it.
+	published := modelInfos(entries)
+	if rows[0].ID != modelPrefixFor(credential)+published[0].ID {
+		t.Fatalf("card routing name = %q, want the account prefix over %q",
+			rows[0].ID, published[0].ID)
 	}
-	if cfg.ModelPrefix {
-		if !strings.HasPrefix(rows[0].ID, modelPrefixFor(credential)) {
-			t.Fatalf("routing name %q does not carry the account prefix %q",
-				rows[0].ID, modelPrefixFor(credential))
-		}
+	if strings.HasPrefix(published[0].ID, modelPrefixFor(credential)) {
+		t.Fatalf("published id %q must stay unprefixed", published[0].ID)
 	}
 	// And the canonical rename is what the prefix is attached to.
 	if !strings.HasSuffix(rows[0].ID, "GLM-5.3-Flash") {

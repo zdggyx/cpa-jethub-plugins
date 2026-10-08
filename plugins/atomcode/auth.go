@@ -80,13 +80,12 @@ func authDataFor(credential *Credential, fileName string) (pluginapi.AuthData, e
 		fileName = defaultAuthFileName(credential)
 	}
 	label := credential.Label()
-	prefix := ""
-	if settings().ModelPrefix {
-		prefix = modelPrefixFor(credential)
-		if strings.HasSuffix(prefix, "/") {
-			prefix = strings.TrimSuffix(prefix, "/")
-		}
-	}
+	// The auth prefix is always exposed: CPA turns it into the
+	// `<account>/<model>` aliases every client of this deployment addresses the
+	// credential by. The plugin no longer bakes the prefix into its own model
+	// ids (that produced a doubled host alias), so this is the only place the
+	// prefix comes from.
+	prefix := strings.TrimSuffix(modelPrefixFor(credential), "/")
 	metadata := map[string]any{
 		"account_id":  credential.AccountID(),
 		"username":    credential.User.Username,

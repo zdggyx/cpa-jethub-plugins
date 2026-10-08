@@ -221,21 +221,25 @@ func modelCard(cfg Config, credential *Credential) template.HTML {
 // verbatim as `display_model_name`, and it is the spelling the gateway answers to
 // (the request path translates back to it, `upstreamModelName`).
 //
-// ID is taken from `modelInfos`, the very descriptors this plugin hands the host,
-// so the routing name shown is the one a request must carry — including the
-// account prefix when `model_prefix` is on. Recomputing it here instead would
-// duplicate that rule and let the page drift from what the host registered.
+// ID is taken from `modelInfos`, the unprefixed canonical name this plugin
+// publishes. The request name a client must carry is `<account>/<ID>` — CPA
+// builds that alias from the credential's auth prefix — so the card prepends
+// the account prefix here instead of recomputing host behaviour elsewhere.
 //
 // The per-model metadata this plugin already published is kept as the row's
 // detail, because it was the only place a reader could see the context window,
 // the image capability and the effort ladder together.
 func catalogueModelEntries(entries []modelEntry, cfg Config, credential *Credential) []plugui.ModelEntry {
-	infos := modelInfos(entries, cfg, credential)
+	infos := modelInfos(entries)
+	prefix := ""
+	if credential != nil {
+		prefix = modelPrefixFor(credential)
+	}
 	rows := make([]plugui.ModelEntry, 0, len(entries))
 	for index, entry := range entries {
 		rows = append(rows, plugui.ModelEntry{
 			Native: entry.DisplayModelName,
-			ID:     infos[index].ID,
+			ID:     prefix + infos[index].ID,
 			Detail: modelEntryDetail(entry),
 		})
 	}
@@ -572,7 +576,6 @@ func configRows(cfg Config) []plugui.Field {
 		{Label: "套餐接口", Value: cfg.CodingPlanAPIBase},
 		{Label: "登录代理", Value: cfg.BrokerBase},
 		{Label: "模型目录", Value: boolLabel(cfg.DiscoverModels) + "（档位 " + cfg.PlanType + "）"},
-		{Label: "模型前缀", Value: boolLabel(cfg.ModelPrefix)},
 	}
 }
 

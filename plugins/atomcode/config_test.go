@@ -46,7 +46,6 @@ func TestConfigFromYAML(t *testing.T) {
 gateway_base: "https://example.test/v1/"
 plan_type: lite
 discover_models: "no"
-model_prefix: 0
 login_timeout_ms: "120000"
 request_timeout_ms: 5000
 `))
@@ -58,9 +57,6 @@ request_timeout_ms: 5000
 	}
 	if cfg.DiscoverModels {
 		t.Fatal("discover_models: \"no\" should disable discovery")
-	}
-	if cfg.ModelPrefix {
-		t.Fatal("model_prefix: 0 should disable the prefix")
 	}
 	if cfg.LoginTimeoutMS != 120000 || cfg.RequestTimeoutMS != 5000 {
 		t.Fatalf("timeouts = %d/%d", cfg.LoginTimeoutMS, cfg.RequestTimeoutMS)

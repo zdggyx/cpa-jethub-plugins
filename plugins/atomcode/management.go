@@ -205,7 +205,7 @@ func statusJSON(h *abiboot.Host, request pluginapi.ManagementRequest) pluginapi.
 		body["usage_error"] = errUsage.Error()
 	}
 	entries := staticModelEntries(h, cfg, selectedCredential)
-	body["models"] = modelInfos(entries, cfg, selectedCredential)
+	body["models"] = modelInfos(entries)
 	body["model_source"] = modelSource(h, cfg, selectedCredential)
 	// Fields the hub's channel overview renders (`plugins/hub/overview.go`):
 	// `model_count` -> "模型 N", `expires_at`/`expires_at_ms`/`expired` -> the
