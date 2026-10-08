@@ -108,7 +108,17 @@ func authDataFor(credential *Credential, fileName string) (pluginapi.AuthData, e
 	label := credential.displayLabel()
 	prefix := ""
 	if settings().ModelPrefix {
-		prefix = tokenPrefix(credential.Session())
+		// ⚠️ `tokenPrefix(session)` rotates on every refresh, so the model
+		// prefix must NOT come from it — a rotating prefix rotates the model
+		// ids clients pin (measured 2026-10-08: mmoat_cg → mmoat_w0 → mmoat_sR
+		// within two hours). The auth FILE name is stable after the first login
+		// (the host keeps supplying it on every later call), so derive the
+		// prefix from that instead.
+		identity := strings.TrimSuffix(strings.TrimPrefix(fileName, ProviderKey+"-"), ".json")
+		prefix = tokenPrefix(identity)
+		if prefix == "" {
+			prefix = "minimax"
+		}
 	}
 	metadata := map[string]any{}
 	if expiry := credential.Expiry(); !expiry.IsZero() {
