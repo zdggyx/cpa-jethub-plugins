@@ -13,7 +13,7 @@
 
 - `main`：上游镜像，只用于 `git fetch upstream` 对齐，不直接提交。
 - `local/patches`：唯一本地改动分支，基线为上游 tag（当前 v0.11.0）+ 本地 commit。
-- 本地标签：`v<上游版本>+local.<主题>.YYYYMMDD`（当前 `v0.11.0+local.trae-solo-tools-catalog.20261008`），必须同步写入 nas `versions.json` 与本仓库 `CHANGELOG.local.md`。
+- 本地标签：`v<上游版本>+local.<主题>.YYYYMMDD`（当前 `v0.11.0+local.trae-solo-tools-catalog.20261008`），必须同步写入 nas `versions.json` 与本仓库 `CHANGELOG.fork.md`。
 - 上游发新版后的同步步骤见 `docs/VERSIONING.md`。
 
 ## 3. 构建与产物
@@ -45,13 +45,13 @@
 ## 7. 长期文档
 
 - 上游文档（跟随上游演进）：`README.md`、`docs/ADDING-A-CHANNEL.md`、`docs/DEPLOYMENT.md`、`docs/PORTING.md`、`CHANGELOG.md`。
-- 本 fork 治理文档：本文件、`docs/VERSIONING.md`、`CHANGELOG.local.md`。
+- 本 fork 治理文档：本文件、`docs/VERSIONING.md`、`CHANGELOG.fork.md`。
 - 部署事实记录在 nas 项目（`~/xiangmu/nas`），不在本仓库重复。
 
 ## 8. 当前工作与待办
 
-- [ ] 修复 Qoder 工具调用：加密路径按上游 `buildQoderTools` 下发 tools（当前 `payload.go` 写死 `Tools: []any{}`）。
-- [ ] CodeBuddy/WorkBuddy：`tool_choice` 对象形式转字符串，修复上游 400。
+- [x] 修复 Qoder 工具调用：加密路径按上游 `buildQoderTools` 下发 tools（2026-10-08，commit `cdc618d`，已部署验收）。
+- [x] CodeBuddy/WorkBuddy：`tool_choice` 对象形式转字符串（2026-10-08，commit `ba52043`，已部署验收）。
 - [ ] 缓存验证：OpenCode 侧历史观察"调用无缓存"；逐渠道核对 usage 缓存字段与请求透传。
 - [ ] 跟进宿主 `/v1/models` 别名重复（带/不带前缀、AtomCode 双前缀，见 nas 部署日志 2026-10-08）。
 - 背景：Mac 的 OpenCode 后续会退役相关 API，这批模型将在新壳子（Hermes）中启用；验收时需兼顾该路径。

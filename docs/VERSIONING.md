@@ -24,7 +24,7 @@
 2. `git checkout local/patches && git rebase --onto v<新版本> v<旧版本>`
 3. 预期冲突文件集中在本地补丁涉及处（TRAE：`config.go` / `models.go` / `plugin.go` / `pluginui.go`；`translate.go` 与 `executor.go` 历史上未被上游改动）
 4. 容器内 `go test ./...` 全绿；补丁自带回归测试不得删改
-5. 更新本地标签（日期与主题）、`CHANGELOG.local.md`、nas `versions.json`
+5. 更新本地标签（日期与主题）、`CHANGELOG.fork.md`、nas `versions.json`
 6. 构建（`agent.md` 第 3 节）→ 部署与验收（`agent.md` 第 4 节）
 
 ## 4. 产物与哈希
