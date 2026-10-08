@@ -4,7 +4,7 @@
 
 ## 待办（未完成）
 
-- 缓存验证：核对各渠道 usage 缓存字段与请求透传（OpenCode 侧历史观察"调用无缓存"）。
+- 缓存验证（首轮完成 2026-10-08，见 credits-panel `docs/cache-probe.md`）：MiniMax 自动缓存命中（1660/1729）；AtomCode 有字段未命中；WorkBuddy/TRAE/Qoder 不可观测；凭据前缀会轮换（mmoat_cg→mmoat_w0），配置应使用无前缀 ID。
 - 跟进宿主 `/v1/models` 别名重复（带/不带前缀、AtomCode 双前缀）。
 - 背景：Mac 的 OpenCode 后续会退役相关 API，这批模型将在新壳子（Hermes）中启用。
 
