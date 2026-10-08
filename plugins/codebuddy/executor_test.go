@@ -545,3 +545,39 @@ func TestNormalizeMessagesDemotesDeveloperRole(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildChatBodyNormalizesObjectToolChoice is the regression guard for the
+// live 400 (`cannot unmarshal object into Go struct field Request.tool_choice
+// of type string`, 2026-10-03): object forms must be translated into strings,
+// string forms must pass through untouched.
+func TestBuildChatBodyNormalizesObjectToolChoice(t *testing.T) {
+	product, _ := productByConfigValue(ProductCodeBuddy)
+	remote := &remoteModel{ID: "glm-5.3"}
+	cases := []struct {
+		name   string
+		choice string
+		want   any
+	}{
+		{"forced function", `{"type":"function","function":{"name":"add"}}`, "required"},
+		{"ai-sdk tool", `{"type":"tool","toolName":"add"}`, "required"},
+		{"unknown object", `{"type":"allowed_tools","tools":[{"type":"function"}]}`, "auto"},
+		{"string required", `"required"`, "required"},
+		{"string auto", `"auto"`, "auto"},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload := []byte(`{"model":"glm-5.3","messages":[{"role":"user","content":"x"}],"tool_choice":` + testCase.choice + `}`)
+			body, errBody := buildChatBody(payload, "glm-5.3", DefaultConfig(), product, remote, "")
+			if errBody != nil {
+				t.Fatalf("buildChatBody: %v", errBody)
+			}
+			var decoded map[string]any
+			if errUnmarshal := json.Unmarshal(body, &decoded); errUnmarshal != nil {
+				t.Fatalf("decode body: %v", errUnmarshal)
+			}
+			if decoded["tool_choice"] != testCase.want {
+				t.Fatalf("tool_choice = %#v, want %#v", decoded["tool_choice"], testCase.want)
+			}
+		})
+	}
+}

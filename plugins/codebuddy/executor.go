@@ -380,6 +380,11 @@ func buildChatBody(
 		return nil, abiboot.HTTPError("invalid_request", http.StatusBadRequest, "chat request has no messages")
 	}
 
+	// tool_choice：上游 struct 只声明 string，对象形态会让整个请求 400
+	// （实测 "cannot unmarshal object into Go struct field Request.tool_choice of
+	// type string"，2026-10-03）。对象统一翻译成字符串，见 normalizeToolChoice。
+	normalizeToolChoice(body)
+
 	// prompt_cache_key：命中前缀缓存（buddy-adapter.ts:992-998，实测费用差约 17 倍）。
 	if cfg.PromptCacheKey {
 		if _, exists := body["prompt_cache_key"]; !exists && promptCacheKey != "" {
@@ -415,6 +420,46 @@ func buildChatBody(
 		return nil, abiboot.Errorf("encode_request", "encode chat request: %v", errMarshal)
 	}
 	return encoded, nil
+}
+
+// normalizeToolChoice translates the OpenAI object forms of `tool_choice` into
+// the plain string the CodeBuddy upstream accepts.
+//
+// The upstream request struct declares `tool_choice` as a string; an object
+// form fails the whole request with HTTP 400 (`cannot unmarshal object into Go
+// struct field Request.tool_choice of type string`, measured 2026-10-03). The
+// upstream has no per-function pinning, so:
+//
+//   - `{"type":"function","function":{"name":"x"}}` (OpenAI forced function)
+//     and `{"type":"tool","toolName":"x"}` (AI-SDK style) become `required` —
+//     the closest accepted semantic ("a tool must be called", verified live);
+//   - any other object (or a non-string scalar) becomes `auto` instead of
+//     failing the request.
+//
+// String values pass through untouched.
+func normalizeToolChoice(body map[string]any) {
+	choice, exists := body["tool_choice"]
+	if !exists {
+		return
+	}
+	if _, isString := choice.(string); isString {
+		return
+	}
+	object, isObject := choice.(map[string]any)
+	if !isObject {
+		body["tool_choice"] = "auto"
+		return
+	}
+	kind := ""
+	if raw, ok := object["type"].(string); ok {
+		kind = strings.TrimSpace(raw)
+	}
+	switch kind {
+	case "function", "tool":
+		body["tool_choice"] = "required"
+	default:
+		body["tool_choice"] = "auto"
+	}
 }
 
 // defaultEffort picks the effort to send when the caller did not choose one:
