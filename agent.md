@@ -13,7 +13,7 @@
 
 - `main`：上游镜像，只用于 `git fetch upstream` 对齐，不直接提交。
 - `local/patches`：唯一本地改动分支，基线为上游 tag（当前 v0.11.0）+ 本地 commit。
-- 本地标签：`v<上游版本>+local.<主题>.YYYYMMDD`（当前 `v0.11.0+local.trae-solo-tools-catalog.20261008`），必须同步写入 nas `versions.json` 与本仓库 `CHANGELOG.fork.md`。
+- 本地标签：`v<上游版本>+local.<主题>.YYYYMMDD`（当前 `v0.11.0+local.tools-fix.20261008`），必须同步写入 nas `versions.json` 与本仓库 `CHANGELOG.fork.md`。
 - 上游发新版后的同步步骤见 `docs/VERSIONING.md`。
 
 ## 3. 构建与产物
