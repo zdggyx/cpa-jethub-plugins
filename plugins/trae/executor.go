@@ -82,12 +82,13 @@ func handleExecutorIdentifier(_ *abiboot.Host, _ json.RawMessage) (any, error) {
 
 // chatCall is one prepared SOLO chat request.
 type chatCall struct {
-	URL          string
-	Body         []byte
-	Headers      http.Header
-	Model        string
-	Channel      string
-	CompletionID string
+	URL            string
+	Body           []byte
+	Headers        http.Header
+	Model          string
+	Channel        string
+	CompletionID   string
+	TextTailMarker string
 }
 
 // requestBody extracts the payload the executor must translate. CPA passes the
@@ -180,6 +181,8 @@ func prepareChatCall(h *abiboot.Host, request pluginapi.ExecutorRequest, credent
 	// 5. One-shot OpenAI -> SOLO conversion, routed to the model's channel.
 	channel := channelFor(meta, metaKnown, cfg)
 	solo := TransformToSOLOBody(root, configNameFor(model), channel)
+	completionID := newCompletionID()
+	marker := addSOLOTextTailGuard(solo, cfg, completionID)
 	body, errMarshal := json.Marshal(solo)
 	if errMarshal != nil {
 		return nil, abiboot.Errorf("encode_request", "序列化 SOLO 请求失败: %v", errMarshal)
@@ -187,12 +190,13 @@ func prepareChatCall(h *abiboot.Host, request pluginapi.ExecutorRequest, credent
 
 	sendCounter.Add(1)
 	return &chatCall{
-		URL:          product.AgentHost + ChatPath,
-		Body:         body,
-		Headers:      soloHeaders(credential, product, true, currentMachineGeneration()),
-		Model:        model,
-		Channel:      channel,
-		CompletionID: newCompletionID(),
+		URL:            product.AgentHost + ChatPath,
+		Body:           body,
+		Headers:        soloHeaders(credential, product, true, currentMachineGeneration()),
+		Model:          model,
+		Channel:        channel,
+		CompletionID:   completionID,
+		TextTailMarker: marker,
 	}, nil
 }
 
@@ -207,6 +211,11 @@ func sendChat(h *abiboot.Host, credential *Credential, call *chatCall, cfg Confi
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, upstreamError(response.StatusCode, string(response.Body))
 	}
+	filtered, streamErr := filterSOLOTextTail(response.Body, call.TextTailMarker)
+	if streamErr != nil {
+		return nil, abiboot.HTTPError("incomplete_upstream", http.StatusBadGateway, "%s", streamErr.Error())
+	}
+	response.Body = filtered
 	return response, nil
 }
 

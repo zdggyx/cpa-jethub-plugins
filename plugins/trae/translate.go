@@ -985,7 +985,10 @@ const (
 
 // SOLOEvent is one parsed SOLO SSE event (trae.ts:1521-1530).
 type SOLOEvent struct {
-	Event            string
+	Event string
+	// RawData preserves vendor fields when the buffered tail guard rewrites
+	// only response text and the terminal reason.
+	RawData          map[string]any
 	Response         string
 	ReasoningContent string
 	ToolCalls        []map[string]any
@@ -1013,6 +1016,7 @@ func ParseSOLOLine(eventName, dataLine string) (SOLOEvent, bool) {
 	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
 		return out, true
 	}
+	out.RawData = raw
 
 	switch event {
 	case soloEventOutput:
@@ -1203,7 +1207,8 @@ type SOLOAggregate struct {
 // whether any event was seen at all, which is the retry signal for the upstream
 // "HTTP 200 then no events" failure (docs/agents/trae.md:494-505).
 func AggregateSOLO(body []byte, model string) (SOLOAggregate, bool) {
-	result := SOLOAggregate{FinishReason: "stop"}
+	result := SOLOAggregate{}
+	tools := &soloToolAccumulator{}
 	scanner := &SOLOScanner{}
 	events := scanner.Feed(body)
 	if tail, ok := scanner.Flush(); ok {
@@ -1215,7 +1220,9 @@ func AggregateSOLO(body []byte, model string) (SOLOAggregate, bool) {
 		case soloEventOutput:
 			result.Content += event.Response
 			result.ReasoningContent += event.ReasoningContent
-			result.ToolCalls = append(result.ToolCalls, event.ToolCalls...)
+			for _, call := range event.ToolCalls {
+				tools.add(call)
+			}
 		case soloEventTokenUsage:
 			result.Usage = event.Usage
 		case soloEventDone:
@@ -1226,6 +1233,10 @@ func AggregateSOLO(body []byte, model string) (SOLOAggregate, bool) {
 			result.Error = &SOLOStreamError{Code: event.ErrorCode, Message: event.ErrorMessage, Model: model}
 		}
 	}
+	for _, call := range tools.calls {
+		result.ToolCalls = append(result.ToolCalls, call.entry(call.arguments, true))
+	}
+	result.FinishReason = tools.finishReason(result.FinishReason)
 	return result, result.SawEvent
 }
 
@@ -1263,6 +1274,106 @@ func usableToolCallName(call map[string]any) (string, bool) {
 		return "", false
 	}
 	return name, true
+}
+
+type soloToolCall struct {
+	index                         int
+	id, sourceID, name, arguments string
+}
+
+func (c *soloToolCall) entry(arguments string, first bool) map[string]any {
+	fn := map[string]any{"arguments": arguments}
+	entry := map[string]any{"index": c.index, "function": fn}
+	if first {
+		entry["id"] = c.id
+		entry["type"] = "function"
+		fn["name"] = c.name
+	}
+	return entry
+}
+
+// SOLO repeats index/id but omits the name on argument continuations. Keep
+// identity separate from deltas so OpenAI clients only concatenate arguments.
+type soloToolAccumulator struct {
+	calls   []*soloToolCall
+	byIndex map[int]*soloToolCall
+	byID    map[string]*soloToolCall
+	dropped bool
+}
+
+func (a *soloToolAccumulator) add(raw map[string]any) map[string]any {
+	if a.byIndex == nil {
+		a.byIndex = map[int]*soloToolCall{}
+		a.byID = map[string]*soloToolCall{}
+	}
+	name, named := usableToolCallName(raw)
+	_, arguments, id := toolCallFields(raw)
+	index := 0
+	_, hasIndex := raw["index"]
+	if hasIndex {
+		number, valid := readNumberField(raw, "index")
+		index = int(number)
+		if !valid || index < 0 || float64(index) != number {
+			a.dropped = true
+			return nil
+		}
+	}
+	var call *soloToolCall
+	if hasIndex {
+		call = a.byIndex[index]
+	}
+	if identified := a.byID[id]; id != "" && identified != nil {
+		if (call != nil && call != identified) || (hasIndex && index != identified.index) {
+			a.dropped = true
+			return nil
+		}
+		call = identified
+	}
+	first := call == nil
+	if first {
+		if !named {
+			a.dropped = true
+			return nil
+		}
+		if !hasIndex {
+			for a.byIndex[index] != nil {
+				index++
+			}
+		}
+		call = &soloToolCall{index: index, id: id, sourceID: id, name: name}
+		if call.id == "" {
+			call.id = fmt.Sprintf("call_%d", index)
+		}
+		a.byIndex[index] = call
+		a.calls = append(a.calls, call)
+	} else if (id != "" && call.sourceID != "" && id != call.sourceID) || (named && name != call.name) {
+		a.dropped = true
+		return nil
+	}
+	if id != "" {
+		call.sourceID = id
+		a.byID[id] = call
+	}
+	call.arguments += arguments
+	if !first && arguments == "" {
+		return nil
+	}
+	return call.entry(arguments, first)
+}
+
+func (a *soloToolAccumulator) finishReason(explicit string) string {
+	// SOLO uses stop even after emitting a tool call. OpenAI clients need
+	// tool_calls to enter the tool round; truncation and other reasons still win.
+	if explicit != "" && !(explicit == "stop" && len(a.calls) > 0) {
+		return explicit
+	}
+	if len(a.calls) > 0 {
+		return "tool_calls"
+	}
+	if a.dropped {
+		return "length"
+	}
+	return "stop"
 }
 
 // openAIChunk is one `chat.completion.chunk` payload. The reference helper emits
@@ -1306,12 +1417,7 @@ func TranslateSOLOStream(body []byte, model, completionID string, created int64)
 	frames := [][]byte{}
 	var usage map[string]any
 	finishReason := ""
-	toolCallCount := 0
-	// droppedUnnamed records that an entry was skipped because its name was not
-	// usable. Discarding it is right, but letting the turn end as `stop` tells
-	// the client the model simply chose not to call a tool (see the finish-reason
-	// rule below).
-	droppedUnnamed := false
+	tools := &soloToolAccumulator{}
 
 	emit := func(delta map[string]any, finish *string) {
 		if !roleSent && finish == nil {
@@ -1345,34 +1451,10 @@ func TranslateSOLOStream(body []byte, model, completionID string, created int64)
 			}
 			if len(event.ToolCalls) > 0 {
 				calls := make([]any, 0, len(event.ToolCalls))
-				for position, call := range event.ToolCalls {
-					// ⚠️ A call whose name is not usable must emit NOTHING
-					// (trae-adapter.ts:1174-1205): forwarding `name:""` gets the
-					// whole request rejected 400 code 11133, and persisting the
-					// block poisons every later turn of the conversation.
-					name, okName := usableToolCallName(call)
-					if !okName {
-						droppedUnnamed = true
-						continue
+				for _, call := range event.ToolCalls {
+					if entry := tools.add(call); entry != nil {
+						calls = append(calls, entry)
 					}
-					index := position
-					if raw, ok := readNumberField(call, "index"); ok {
-						index = int(raw)
-					}
-					_, arguments, id := toolCallFields(call)
-					entry := map[string]any{
-						"index": index,
-						"type":  "function",
-						"function": map[string]any{
-							"name":      name,
-							"arguments": arguments,
-						},
-					}
-					if id != "" {
-						entry["id"] = id
-					}
-					calls = append(calls, entry)
-					toolCallCount++
 				}
 				if len(calls) > 0 {
 					delta["tool_calls"] = calls
@@ -1392,24 +1474,11 @@ func TranslateSOLOStream(body []byte, model, completionID string, created int64)
 		}
 	}
 
-	if finishReason == "" {
-		switch {
-		case droppedUnnamed && toolCallCount == 0:
-			// Upstream's third rule (trae-adapter.ts:1308-1318): an unnamed call
-			// was discarded and no usable call remains, so this is an incomplete
-			// turn that may be retried — never `stop`, which would claim the model
-			// deliberately answered without a tool.
-			finishReason = "length"
-		case toolCallCount > 0:
-			finishReason = "tool_calls"
-		default:
-			finishReason = "stop"
-		}
-	}
+	finishReason = tools.finishReason(finishReason)
 	// The closing chunk always carries `finish_reason`; `usage` rides along when
 	// the upstream sent a token_usage event.
 	finalDelta := map[string]any{}
-	if !roleSent && toolCallCount == 0 {
+	if !roleSent && len(tools.calls) == 0 {
 		finalDelta["role"] = "assistant"
 		roleSent = true
 	}
@@ -1437,8 +1506,12 @@ func AggregateSOLOToCompletion(body []byte, model, completionID string, created 
 	toolCalls := []any{}
 	for position, call := range aggregate.ToolCalls {
 		name, arguments, id := toolCallFields(call)
+		index := position
+		if raw, ok := readNumberField(call, "index"); ok {
+			index = int(raw)
+		}
 		entry := map[string]any{
-			"index": position,
+			"index": index,
 			"type":  "function",
 			"function": map[string]any{
 				"name":      name,

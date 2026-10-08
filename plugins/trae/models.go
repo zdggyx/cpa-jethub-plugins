@@ -774,6 +774,42 @@ func peekCatalog(cfg Config, credential *Credential) (catalog, bool) {
 // fetchCatalog calls `batch_get_detail_param` and parses the response
 // (trae-auth.ts:484-540). A non-2xx answer or an unparsable body is an error;
 // callers fall back to the static catalog.
+// ParseBatchModelListForChannels restricts discovery before merging entries.
+// The IDE batch includes legacy chat, inline, git and review-only functions.
+// Their models/effort metadata must not leak into the configured SOLO routes.
+func ParseBatchModelListForChannels(body []byte, nowSec int64, channels []string) []remoteModel {
+	var root map[string]any
+	if json.Unmarshal(body, &root) != nil {
+		return nil
+	}
+	key := "function_configs"
+	groups, ok := asSlice(root[key])
+	if !ok {
+		key = "FunctionConfigs"
+		groups, ok = asSlice(root[key])
+	}
+	if !ok {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, channel := range channels {
+		allowed[strings.TrimSpace(channel)] = true
+	}
+	kept := []any{}
+	for _, raw := range groups {
+		group, ok := asMap(raw)
+		if ok && allowed[readStringField(group, "function", "Function")] {
+			kept = append(kept, raw)
+		}
+	}
+	root[key] = kept
+	filtered, err := json.Marshal(root)
+	if err != nil {
+		return nil
+	}
+	return ParseBatchModelList(filtered, nowSec)
+}
+
 func fetchCatalog(h *abiboot.Host, credential *Credential, cfg Config) ([]remoteModel, error) {
 	body, errMarshal := json.Marshal(map[string]any{
 		"functions":                 catalogFunctions(cfg),
@@ -799,7 +835,7 @@ func fetchCatalog(h *abiboot.Host, credential *Credential, cfg Config) ([]remote
 		return nil, abiboot.Errorf("catalog_status", "模型目录返回 HTTP %d: %s",
 			response.StatusCode, truncate(string(response.Body), 300))
 	}
-	models := ParseBatchModelList(response.Body, time.Now().Unix())
+	models := ParseBatchModelListForChannels(response.Body, time.Now().Unix(), cfg.Channels)
 	if len(models) == 0 {
 		return nil, abiboot.Errorf("catalog_empty", "模型目录响应中没有可调用条目")
 	}

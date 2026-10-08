@@ -109,6 +109,7 @@ func credentialOf(h *abiboot.Host, entry pluginapi.HostAuthFileEntry) (*Credenti
 type catalogSummary struct {
 	Discovered  bool
 	ModelCount  int
+	ModelInfos  []pluginapi.ModelInfo
 	ChannelHits map[string]int
 	ImageCount  int
 	MaxModeHits int
@@ -119,6 +120,7 @@ type catalogSummary struct {
 func summariseCatalog(h *abiboot.Host, credential *Credential, cfg Config) catalogSummary {
 	summary := catalogSummary{ChannelHits: map[string]int{}}
 	if !cfg.DiscoverModels {
+		summary.ModelInfos = staticModelInfos(cfg)
 		for _, info := range staticModelInfos(cfg) {
 			_ = info
 			summary.ModelCount++
@@ -128,6 +130,7 @@ func summariseCatalog(h *abiboot.Host, credential *Credential, cfg Config) catal
 	entry, errCatalog := catalogFor(h, credential, cfg)
 	if errCatalog != nil {
 		summary.Error = errCatalog.Error()
+		summary.ModelInfos = staticModelInfos(cfg)
 		summary.ModelCount = len(staticModelInfos(cfg))
 		return summary
 	}
@@ -137,6 +140,7 @@ func summariseCatalog(h *abiboot.Host, credential *Credential, cfg Config) catal
 			continue
 		}
 		summary.ModelCount++
+		summary.ModelInfos = append(summary.ModelInfos, modelInfoForRemote(model, cfg))
 		if model.Channel != "" {
 			summary.ChannelHits[model.Channel]++
 		}
@@ -452,7 +456,9 @@ func statusJSON(h *abiboot.Host, request pluginapi.ManagementRequest) pluginapi.
 		// carries no 模型 N at all. This is the built-in catalogue size — the
 		// live one needs an account, and this document is also served when there
 		// is none.
-		"model_count": len(staticModelInfos(cfg)),
+		"model_count":  len(staticModelInfos(cfg)),
+		"models":       []pluginapi.ModelInfo{},
+		"model_source": "unavailable",
 	}
 	if len(accounts) == 0 {
 		body["accounts"] = []any{}
@@ -461,6 +467,15 @@ func statusJSON(h *abiboot.Host, request pluginapi.ManagementRequest) pluginapi.
 	entry, found := selectAccount(h, request)
 	if !found {
 		return jsonManagementResponse(http.StatusBadRequest, map[string]any{"error": "指定的 auth_index 不存在"})
+	}
+	// Model clients need the native descriptor, not /v1/models' name-only view.
+	// This read-only query skips balance/checkin reads and never performs a claim.
+	if request.Query.Get("models_only") == "1" {
+		credential, _, errCredential := credentialOf(h, entry)
+		if errCredential == nil {
+			publishCatalog(body, summariseCatalog(h, credential, cfg))
+		}
+		return jsonManagementResponse(http.StatusOK, body)
 	}
 
 	quotas := collectAccountQuotas(h, accounts, cfg)
@@ -486,6 +501,7 @@ func statusJSON(h *abiboot.Host, request pluginapi.ManagementRequest) pluginapi.
 	}
 	if current.CredentialErr == nil {
 		summary := summariseCatalog(h, current.Credential, cfg)
+		publishCatalog(body, summary)
 		selectedEntry["models"] = summary.ModelCount
 		selectedEntry["image_models"] = summary.ImageCount
 		selectedEntry["max_mode_models"] = summary.MaxModeHits
@@ -526,6 +542,15 @@ func statusJSON(h *abiboot.Host, request pluginapi.ManagementRequest) pluginapi.
 		body["checkin_error"] = current.CheckinErr.Error()
 	}
 	return jsonManagementResponse(http.StatusOK, body)
+}
+
+func publishCatalog(body map[string]any, summary catalogSummary) {
+	body["models"] = summary.ModelInfos
+	body["model_count"] = summary.ModelCount
+	body["model_source"] = "fallback"
+	if summary.Discovered {
+		body["model_source"] = "server"
+	}
 }
 
 // checkinResponse serves the check-in route in both representations.

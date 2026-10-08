@@ -237,6 +237,9 @@ type Config struct {
 	MaxModeModels []string
 	// MaxCompletionTokens clamps a single response; 0 disables the clamp.
 	MaxCompletionTokens int
+	// TextTailGuard protects the measured DeepSeek V4.1 Flash SOLO tail-loss
+	// path with a removable text trailer. Other models are unaffected.
+	TextTailGuard bool
 	// MaxHistoryChars is the request-body character budget.
 	MaxHistoryChars int
 	// RotateMachineID opts into machine-fingerprint rotation. Off by default:
@@ -286,6 +289,7 @@ func DefaultConfig() Config {
 		DefaultChannel:      DefaultFunction,
 		MaxMode:             true,
 		MaxCompletionTokens: DefaultMaxCompletionTokens,
+		TextTailGuard:       true,
 		MaxHistoryChars:     DefaultMaxHistoryChars,
 		RotateMachineID:     false,
 		ModelCacheTTLMS:     DefaultModelCacheTTLMS,
@@ -334,6 +338,7 @@ func ConfigFromYAML(document []byte) Config {
 	cfg.MaxMode = coerceBool(raw["max_mode"], cfg.MaxMode)
 	cfg.MaxModeModels = coerceList(raw["max_mode_models"])
 	cfg.MaxCompletionTokens = coerceInt(raw["max_completion_tokens"], cfg.MaxCompletionTokens)
+	cfg.TextTailGuard = coerceBool(raw["text_tail_guard"], cfg.TextTailGuard)
 	cfg.MaxHistoryChars = coerceInt(raw["max_history_chars"], cfg.MaxHistoryChars)
 	cfg.RotateMachineID = coerceBool(raw["rotate_machine_id"], cfg.RotateMachineID)
 	cfg.ModelCacheTTLMS = coerceInt(raw["model_cache_ttl_ms"], cfg.ModelCacheTTLMS)
