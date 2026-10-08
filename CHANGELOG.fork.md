@@ -26,3 +26,10 @@
 - 验收：AtomCode GLM / WorkBuddy DeepSeek / TRAE DeepSeek 精确回复通过；AtomCode 工具往返（19+23=42）通过。
 - 观察：宿主 `/v1/models` 出现别名重复（110 条；带/不带前缀，AtomCode 双前缀），插件自报目录干净，三种形态均可路由；列为待跟进。
 - 落档：nas `configs/cliproxyapi/versions.json`、nas `部署日志.md`（2026-10-08 节）。
+
+## 2026-10-08（晚）— fix(atomcode)：停止烘焙账号前缀
+
+- CPA 对每个带前缀的凭据同时注册"原名"与"`前缀/模型`"两个条目；AtomCode 再自己把前缀烘焙进发布的 ID，就产生 `6a7ad855/6a7ad855/…` 双前缀条目（实测 CPA 8.0.20）。
+- 修复：发布的模型 ID 恢复为不带前缀的规范名；auth 前缀（`AuthData.Prefix`）无条件暴露；`model_prefix` 配置项移除（解析宽容，旧配置无需清理）。
+- 回归：`TestCatalogueCardRoutingNameMatchesWhatTheHostRegisters` 改为断言"卡片 ID = 账号前缀 + 未前缀发布名"。
+- 部署：atomcode.so 替换到 NAS，CPA 侧加 `force-model-prefix: true`，`/v1/models` 收敛为 57 条纯前缀条目（见 nas 部署日志 2026-10-08 晚节）。
