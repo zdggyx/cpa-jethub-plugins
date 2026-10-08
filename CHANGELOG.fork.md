@@ -4,7 +4,7 @@
 
 ## 待办（未完成）
 
-- 缓存验证（首轮完成 2026-10-08，见 credits-panel `docs/cache-probe.md`）：MiniMax 自动缓存命中（1660/1729）；AtomCode 有字段未命中；WorkBuddy/TRAE/Qoder 不可观测；凭据前缀会轮换（mmoat_cg→mmoat_w0），配置应使用无前缀 ID。
+- 缓存验证（完成 2026-10-08，见 credits-panel `docs/cache-probe.md`）：MiniMax 字段命中 96%；TRAE 前缀级缓存、GLM/Qwen 命中 70–80%、`deepseek-v4.1-flash` 无折扣；WorkBuddy DeepSeek 缓存≈1/10 价（账务滞后）；QoderCN 无折扣；AtomCode 有字段未命中；凭据前缀会轮换（mmoat_cg→mmoat_w0），配置应使用无前缀 ID。
 - 跟进宿主 `/v1/models` 别名重复（带/不带前缀、AtomCode 双前缀）。
 - 背景：Mac 的 OpenCode 后续会退役相关 API，这批模型将在新壳子（Hermes）中启用。
 
