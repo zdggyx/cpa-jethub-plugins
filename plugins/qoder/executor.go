@@ -313,13 +313,44 @@ type wireRequest struct {
 	MaxTokens       *int          `json:"max_tokens"`
 	ReasoningEffort string        `json:"reasoning_effort"`
 	Messages        []wireMessage `json:"messages"`
+	Tools           []wireTool    `json:"tools"`
 }
 
 // wireMessage keeps the raw content so both the plain-string form and the
-// multimodal parts array are handled.
+// multimodal parts array are handled. `tool_calls` appears on assistant turns
+// and `tool_call_id` on `tool` turns; both are forwarded into the encrypted
+// payload (see `payload.go`).
 type wireMessage struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role       string          `json:"role"`
+	Content    json.RawMessage `json:"content"`
+	ToolCalls  []wireToolCall  `json:"tool_calls"`
+	ToolCallID string          `json:"tool_call_id"`
+}
+
+// wireTool is one OpenAI-format tool definition as sent by the client.
+type wireTool struct {
+	Type     string           `json:"type"`
+	Function wireToolFunction `json:"function"`
+}
+
+// wireToolFunction carries the client's schema verbatim: `parameters` stays
+// raw so the wire bytes reach the encrypted payload unchanged.
+type wireToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
+}
+
+// wireToolCall is one assistant-side tool call; `arguments` is the raw JSON
+// string the client sent, not a parsed object.
+type wireToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Index    *int   `json:"index"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 // parseWireRequest decodes the translated chat-completions payload.

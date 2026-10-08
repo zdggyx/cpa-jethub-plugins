@@ -109,10 +109,16 @@ type signRequest struct {
 	Ask  inferAsk
 }
 
-// inferMessage is one history entry (`QoderInferMessage`, `qoder-wasm.ts:104-108`).
+// inferMessage is one history entry (`QoderInferMessage`, gitee
+// `qoder-wasm.ts:104-141`). `ToolCalls` only appears on assistant messages and
+// `ToolCallID` only on `role:'tool'` messages; an absent field keeps its key
+// out of the JSON, exactly like the client's serializer
+// (`qoder-wasm.ts:267-268`).
 type inferMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCalls  []inferToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
 }
 
 // inferAsk mirrors `QoderInferAsk` (`qoder-wasm.ts:110-167`).
@@ -124,6 +130,10 @@ type inferAsk struct {
 	SystemText string
 	// History is the conversation, oldest first.
 	History []inferMessage
+	// Tools are the client's function definitions, forwarded into the payload's
+	// top-level `tools` (gitee `qoder-wasm.ts:220-227`). Empty means "no tools";
+	// the payload still writes an empty array.
+	Tools []inferTool
 	// IsReasoning is written to `model_config.is_reasoning` and is taken from
 	// the catalog's `is_reasoning` (`qoder-adapter.ts:296-297`).
 	IsReasoning bool

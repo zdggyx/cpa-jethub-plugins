@@ -63,6 +63,41 @@ type inferModelConfig struct {
 	MaxInputTokens int64  `json:"max_input_tokens"`
 }
 
+// inferTool is one entry of the payload's top-level `tools` (`QoderInferTool`,
+// gitee `qoder-wasm.ts:144-157`): OpenAI-style
+// `{type:'function', function:{name, description?, parameters?}}`; `description`
+// and `parameters` disappear when empty, exactly like the official client's
+// `$Hc(A)`. The early upstream hardcoded `tools: []`, which left models without
+// any function schema and made them invent XML tool calls inside the reply
+// text (用户报障「任务调用 xml 泄露任务终止」).
+type inferTool struct {
+	Type     string            `json:"type"`
+	Function inferToolFunction `json:"function"`
+}
+
+// inferToolFunction is `inferTool.function`; `parameters` stays raw so the
+// client's schema bytes reach the endpoint unchanged.
+type inferToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+}
+
+// inferToolCall is one assistant-side tool call (`QoderInferToolCall`, gitee
+// `qoder-wasm.ts:98-121`): OpenAI style, `arguments` is the raw JSON string.
+type inferToolCall struct {
+	ID       string                `json:"id"`
+	Type     string                `json:"type"`
+	Index    *int                  `json:"index,omitempty"`
+	Function inferToolCallFunction `json:"function"`
+}
+
+// inferToolCallFunction is the called function's name and raw arguments string.
+type inferToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
 // inferPayload is the JSON handed to the WASM for encryption.
 type inferPayload struct {
 	RequestID      string           `json:"request_id"`
@@ -84,7 +119,7 @@ type inferPayload struct {
 	CustomModel    any              `json:"custom_model"`
 	System         []inferTextBlock `json:"system"`
 	Messages       []inferMessage   `json:"messages"`
-	Tools          []any            `json:"tools"`
+	Tools          []inferTool      `json:"tools"`
 	Parameters     map[string]any   `json:"parameters"`
 	Business       map[string]any   `json:"business,omitempty"`
 }
@@ -114,6 +149,14 @@ func buildInferPayload(ask inferAsk) ([]byte, error) {
 	system := []inferTextBlock{}
 	if ask.SystemText != "" {
 		system = append(system, inferTextBlock{Type: "text", Text: ask.SystemText})
+	}
+
+	// `tools` is always present and an empty array when the client sent none —
+	// never a missing key (`tools: ask.tools ?? []`, gitee
+	// `qoder-wasm.ts:316-321`).
+	tools := ask.Tools
+	if tools == nil {
+		tools = []inferTool{}
 	}
 
 	source := ask.Source
@@ -174,7 +217,7 @@ func buildInferPayload(ask inferAsk) ([]byte, error) {
 		CustomModel: nil,
 		System:      system,
 		Messages:    messages,
-		Tools:       []any{},
+		Tools:       tools,
 		Parameters:  parameters,
 		Business:    ask.Business,
 	}
@@ -213,7 +256,8 @@ func inferAskFromRequest(request pluginapi.ExecutorRequest, credential *Credenti
 	userText := ""
 	for _, message := range wire.Messages {
 		text := messageText(message.Content)
-		switch strings.ToLower(strings.TrimSpace(message.Role)) {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		switch role {
 		case "system", "developer":
 			// `developer` 与 `system` 在 OpenAI 规范里语义相同；qoder 的推理载荷
 			// 只有 user/assistant 两类历史位，指令文本并入 system 段下发。
@@ -226,7 +270,17 @@ func inferAskFromRequest(request pluginapi.ExecutorRequest, credential *Credenti
 				userText = text
 			}
 		}
-		history = append(history, inferMessage{Role: message.Role, Content: text})
+		entry := inferMessage{Role: message.Role, Content: text}
+		// `tool_calls` only rides assistant turns and `tool_call_id` only
+		// `tool` turns (gitee `qoder-wasm.ts:127-134`): 只发工具结果却不发对应
+		// 的 assistant `tool_calls`，模型会看不到自己调用过什么。
+		if role == "assistant" {
+			entry.ToolCalls = inferToolCallsFromWire(message.ToolCalls)
+		}
+		if role == "tool" {
+			entry.ToolCallID = strings.TrimSpace(message.ToolCallID)
+		}
+		history = append(history, entry)
 	}
 	if userText == "" {
 		// The last user turn is the question; fall back to the last message so a
@@ -245,6 +299,7 @@ func inferAskFromRequest(request pluginapi.ExecutorRequest, credential *Credenti
 		UserText:        userText,
 		SystemText:      strings.Join(systemParts, "\n\n"),
 		History:         history,
+		Tools:           inferToolsFromWire(wire.Tools),
 		ReasoningEffort: strings.TrimSpace(wire.ReasoningEffort),
 		Source:          "system",
 		Format:          "openai",
@@ -269,4 +324,63 @@ func inferAskFromRequest(request pluginapi.ExecutorRequest, credential *Credenti
 		ask.MaxTokens = &maxTokens
 	}
 	return ask, nil
+}
+
+// inferToolsFromWire maps the client's OpenAI tool definitions onto the
+// payload's top-level `tools` (`QoderInferTool`, gitee `qoder-wasm.ts:144-157`).
+//
+// Only function tools are forwarded: the encrypted endpoint rejects any other
+// `type` outright (`tools[0].type: unknown variant … expected function`) and
+// the harness only ever expresses function tools. An empty `type` counts as the
+// OpenAI default. Entries without a name are dropped instead of sent broken;
+// `description` / `parameters` keep their omit-when-empty upstream behavior.
+func inferToolsFromWire(tools []wireTool) []inferTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	mapped := make([]inferTool, 0, len(tools))
+	for _, tool := range tools {
+		if tool.Type != "" && !strings.EqualFold(tool.Type, "function") {
+			continue
+		}
+		name := strings.TrimSpace(tool.Function.Name)
+		if name == "" {
+			continue
+		}
+		mapped = append(mapped, inferTool{
+			Type: "function",
+			Function: inferToolFunction{
+				Name:        name,
+				Description: tool.Function.Description,
+				Parameters:  tool.Function.Parameters,
+			},
+		})
+	}
+	return mapped
+}
+
+// inferToolCallsFromWire maps assistant-side tool calls (`QoderInferToolCall`,
+// gitee `qoder-wasm.ts:98-121`). `arguments` stays the exact JSON string the
+// client sent; re-encoding it here would corrupt the model-visible call.
+func inferToolCallsFromWire(calls []wireToolCall) []inferToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	mapped := make([]inferToolCall, 0, len(calls))
+	for _, call := range calls {
+		callType := call.Type
+		if callType == "" {
+			callType = "function"
+		}
+		mapped = append(mapped, inferToolCall{
+			ID:    call.ID,
+			Type:  callType,
+			Index: call.Index,
+			Function: inferToolCallFunction{
+				Name:      call.Function.Name,
+				Arguments: call.Function.Arguments,
+			},
+		})
+	}
+	return mapped
 }
